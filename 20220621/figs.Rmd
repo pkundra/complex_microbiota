@@ -1,0 +1,797 @@
+---
+title: "Palni"
+author: "Deepak Tanwar"
+date: "2/3/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Libraries
+```{r, warning=FALSE, message=FALSE}
+library(ComplexHeatmap)
+library(ggplot2)
+library(reshape2)
+library(readxl)
+library(seriation)
+library(writexl)
+library(plyr)
+source("../figures/functions.R")
+
+seriate_mat <- function(mat) {
+  mat[is.na(mat)] <- 0
+  mat[is.nan(mat)] <- 0
+  mat[is.infinite(mat)] <- 0
+  o <- seriate(max(mat) - mat, method = "PCA")
+  mat <- mat[get_order(o, 1), ]
+  mat <- mat[, get_order(o, 2)]
+  return(mat)
+}
+```
+
+# SCFA heatmap (conc difference)
+```{r}
+scfa <- data.frame(
+  read_xlsx(path = "../figures/SCFAs_donor_1_to_9_concentration_in_mM.xlsx", sheet = 1),
+  check.names = F
+)
+
+scfa <- scfa[, -c(3:5)]
+
+scfa <- aggregate(scfa[, 3:11], list(Donor = scfa$Donor, Treatment = scfa$Treatment), mean)
+
+scfa$Donor <- gsub(pattern = "Donor ", replacement = "", x = scfa$Donor)
+scfa$Donor <- as.numeric(scfa$Donor) - 1
+scfa$Donor <- paste0("D", scfa$Donor)
+scfa$Treatment <- gsub(pattern = " ", replacement = "", x = scfa$Treatment)
+
+scfa <- scfa[scfa$Treatment != "ExtraB9",]
+scfa$Treatment[scfa$Treatment == "NB9B12"] <- "NB12"
+
+scfa$ID <- paste(scfa$Donor, scfa$Treatment, sep = "_")
+
+an <- scfa[, c(12, 1:2)]
+
+rownames(scfa) <- scfa$ID
+scfa <- scfa[, -c(12, 1:2)]
+colnames(scfa) <- gsub(pattern = "\\ \\[mM]", replacement = "", x = colnames(scfa))
+
+scfa1 <- split(x = scfa, f = gsub(pattern = "_.*", replacement = "", x = rownames(scfa)))
+scfa1 <- lapply(scfa1, function(x) {
+  a <- t(x)
+  b <- data.matrix(a - a[, grep(pattern = "Control", x = colnames(a), value = F)])
+  b <- t(b)
+  b <- data.frame(ID = rownames(b), b)
+  return(b)
+})
+
+scfa1 <- ldply(scfa1, data.frame, .id = NULL)
+rownames(scfa1) <- scfa1$ID
+scfa1 <- scfa1[, -1]
+scfa1 <- t(scfa1)
+# scfa1 <- seriate_mat(mat = scfa1)
+writexl::write_xlsx(data.frame(Metabolites = rownames(scfa1), scfa1), "scfa1_diff.xlsx", col_names = T, format_headers = T)
+
+writexl::write_xlsx(data.frame(Metabolites = rownames(scfa1), scfa1), "scfa1_diff_sig.xlsx", col_names = T, format_headers = T)
+
+
+scfa2 <- split(x = scfa, f = gsub(pattern = "_.*", replacement = "", x = rownames(scfa)))
+
+scfa2 <- lapply(scfa2, function(x) {
+  a <- t(x)
+  a <- a[, grep(pattern = "Control", x = colnames(a), invert = T)]
+  b <- data.matrix(a - a[, grep(pattern = "NB12", x = colnames(a), value = F)])
+  b <- t(b)
+  b <- data.frame(ID = rownames(b), b)
+  return(b)
+})
+
+scfa2 <- ldply(scfa2, data.frame, .id = NULL)
+rownames(scfa2) <- scfa2$ID
+scfa2 <- scfa2[, -1]
+scfa2 <- t(scfa2)
+# scfa2 <- seriate_mat(mat = scfa2)
+```
+
+## Heatmaps (Control)
+```{r}
+rownames(an) <- an$ID
+# an$Treatment[an$Treatment == "NB9B12"] <- "LB9NB12"
+an$Treatment <- factor(an$Treatment, levels = unique(an$Treatment))
+an <- an[c(grep(pattern = "Control", rownames(an)), 
+           grep(pattern = "NB12", rownames(an)),
+           grep(pattern = "ExtraB12", rownames(an))),]
+
+
+rn <- rownames(scfa1)
+# rn <- rn[c(1,9,2,4,8,7,5,6,3)]
+
+library(circlize)
+col_fun <- colorRamp2(c(min(scfa1), 0, max(scfa1)), c("blue", "white", "red"))
+# cl <- col_fun(seq(-5, 5))
+
+cols <- RColorBrewer::brewer.pal(n = 6, name = "Dark2")[c(1,2,3)]
+names(cols) <- unique(an$Treatment)
+names(cols) <- factor(names(cols), names(cols))
+
+scfa1_sig <- data.frame(readxl::read_xlsx("scfa1_diff_sig.xlsx"))
+rownames(scfa1_sig) <- scfa1_sig$Metabolites
+scfa1_sig <- scfa1_sig[,-1]
+scfa1_sig <- scfa1_sig[rn, rownames(an)]
+scfa1_sig[is.na(scfa1_sig)] <- 0
+
+set.seed(1)
+h1 <- Heatmap(
+  matrix = scfa1[rn, rownames(an)],
+  # col = viridis(n = 50),
+  col = col_fun,
+  cluster_rows = F,
+  row_names_side = "left",
+  cluster_columns = F,
+  show_row_names = T,
+  show_column_names = F,
+  name = "mM",
+  # row_split = rd$Biotype,
+  column_split = an[, 2, drop = FALSE],
+  cluster_column_slices = F,
+  show_parent_dend_line = FALSE,
+  row_title_rot = 0,
+  # row_title = NULL,
+  row_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  column_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  row_title_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  # column_title = NULL,
+  column_dend_height = unit(0.5, "cm"),
+  use_raster = FALSE,
+  top_annotation = HeatmapAnnotation(
+    df = an[, 3, drop = F],
+    col = list(Treatment = cols),
+    simple_anno_size = unit(3, "mm"),
+    show_annotation_name = TRUE,
+    annotation_name_side = "right",
+    # title = expression(Log[2] ~ "CPM"),
+    annotation_name_rot = 0,
+    annotation_name_gp = gpar(fontsize = 0, fontfamily = "Helvetica"),
+    annotation_legend_param = list(
+      title_gp = gpar(fontsize = 10, fontface = "plain", fontfamily = "Helvetica"),
+      labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+    )
+  ),
+  height = unit(x = 4, units = "cm"), width = unit(x = 9, units = "cm"),
+  heatmap_legend_param = list(
+    at = seq(-30, 20, 10),
+    # title = expression(Log[2] ~ "FC (mM)"),
+    title = expression(Delta ~ "concentration (mM)"),
+    legend_height = unit(1, "cm"),
+    # title_position = "leftcenter-rot",
+    title_gp = gpar(fontsize = 10, fontfamily = "Helvetica"),
+    labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+  ),
+  cell_fun = function(j, i, x, y, w, h, fill) {
+    if(scfa1_sig[i, j] == 1) {
+        grid.text("*", x, y)
+    }
+  }
+)
+
+pdf(file = "scfa1.pdf", width = 11, height = 8.5)
+draw(
+  object = h1,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+png(filename = "scfa1.png", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h1,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+jpeg(filename = "scfa1.jpeg", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h1,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+```
+
+## Heatmaps (N)
+```{r}
+an1 <- an[an$Treatment != "Control", ]
+an1$Treatment <- factor(an1$Treatment, levels = unique(an1$Treatment))
+
+cols <- RColorBrewer::brewer.pal(n = 6, name = "Dark2")[c(2,3)]
+names(cols) <- unique(an1$Treatment)
+
+
+library(circlize)
+col_fun <- colorRamp2(c(-29, 0, 17.5), c("blue", "white", "red"))
+
+set.seed(1)
+h2 <- Heatmap(
+  matrix = scfa2[rn, rownames(an1)],
+  col = col_fun,
+  cluster_rows = F,
+  row_names_side = "left",
+  cluster_columns = F,
+  show_row_names = T,
+  show_column_names = F,
+  name = "mM",
+  # row_split = rd$Biotype,
+  column_split = an1[, 2, drop = FALSE],
+  cluster_column_slices = F,
+  show_parent_dend_line = FALSE,
+  row_title_rot = 0,
+  # row_title = NULL,
+  row_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  column_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  row_title_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  # column_title = NULL,
+  column_dend_height = unit(0.5, "cm"),
+  use_raster = FALSE,
+  top_annotation = HeatmapAnnotation(
+    df = an1[, 3, drop = F],
+    col = list(Treatment = cols),
+    simple_anno_size = unit(3, "mm"),
+    show_annotation_name = TRUE,
+    annotation_name_side = "right",
+    # title = expression(Log[2] ~ "CPM"),
+    annotation_name_rot = 0,
+    annotation_name_gp = gpar(fontsize = 0, fontfamily = "Helvetica"),
+    annotation_legend_param = list(
+      title_gp = gpar(fontsize = 10, fontface = "plain", fontfamily = "Helvetica"),
+      labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+    )
+  ),
+  height = unit(x = 4, units = "cm"), width = unit(x = 6, units = "cm"),
+  heatmap_legend_param = list(
+    at = seq(-30,15,15),
+    # title = expression(Log[2] ~ "FC (mM)"),
+    title = expression(Delta ~ "concentration (mM)"),
+    legend_height = unit(1, "cm"),
+    # title_position = "leftcenter-rot",
+    title_gp = gpar(fontsize = 10, fontfamily = "Helvetica"),
+    labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+  )
+)
+
+
+pdf(file = "scfa2.pdf", width = 11, height = 8.5)
+draw(
+  object = h2,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+png(filename = "scfa2.png", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h2,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+jpeg(filename = "scfa2.jpeg", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h2,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+```
+
+
+# SCFA heatmap (fold changes)
+```{r}
+scfa <- data.frame(
+  read_xlsx(path = "../figures/SCFAs_donor_1_to_9_concentration_in_mM.xlsx", sheet = 1),
+  check.names = F
+)
+
+scfa <- scfa[, -c(3:5)]
+
+scfa <- aggregate(scfa[, 3:11], list(Donor = scfa$Donor, Treatment = scfa$Treatment), mean)
+
+scfa$Donor <- gsub(pattern = "Donor ", replacement = "", x = scfa$Donor)
+scfa$Donor <- as.numeric(scfa$Donor) - 1
+scfa$Donor <- paste0("D", scfa$Donor)
+scfa$Treatment <- gsub(pattern = " ", replacement = "", x = scfa$Treatment)
+
+scfa <- scfa[scfa$Treatment != "ExtraB9",]
+scfa$Treatment[scfa$Treatment == "NB9B12"] <- "NB12"
+
+scfa$ID <- paste(scfa$Donor, scfa$Treatment, sep = "_")
+
+an <- scfa[, c(12, 1:2)]
+
+rownames(scfa) <- scfa$ID
+scfa <- scfa[, -c(12, 1:2)]
+colnames(scfa) <- gsub(pattern = "\\ \\[mM]", replacement = "", x = colnames(scfa))
+
+scfa1 <- split(x = scfa, f = gsub(pattern = "_.*", replacement = "", x = rownames(scfa)))
+scfa1 <- lapply(scfa1, function(x) {
+  a <- t(x)
+  b <- data.matrix(a / a[, grep(pattern = "Control", x = colnames(a), value = F)])
+  b <- t(b)
+  b <- data.frame(ID = rownames(b), b)
+  return(b)
+})
+
+scfa1 <- ldply(scfa1, data.frame, .id = NULL)
+rownames(scfa1) <- scfa1$ID
+scfa1 <- scfa1[, -1]
+scfa1 <- t(scfa1)
+scfa1[is.na(scfa1)] <- 1
+scfa1[is.nan(scfa1)] <- 1
+scfa1[is.infinite(scfa1)] <- 1
+scfa1 <- scfa1 - 1
+# scfa1 <- seriate_mat(mat = scfa1)
+
+scfa2 <- split(x = scfa, f = gsub(pattern = "_.*", replacement = "", x = rownames(scfa)))
+
+scfa2 <- lapply(scfa2, function(x) {
+  a <- t(x)
+  a <- a[, grep(pattern = "Control", x = colnames(a), invert = T)]
+  b <- data.matrix(a / a[, grep(pattern = "NB12", x = colnames(a), value = F)])
+  b <- t(b)
+  b <- data.frame(ID = rownames(b), b)
+  return(b)
+})
+
+scfa2 <- ldply(scfa2, data.frame, .id = NULL)
+rownames(scfa2) <- scfa2$ID
+scfa2 <- scfa2[, -1]
+scfa2 <- t(scfa2)
+scfa2[is.na(scfa2)] <- 1
+scfa2[is.nan(scfa2)] <- 1
+scfa2[is.infinite(scfa2)] <- 1
+scfa2 <- scfa2 - 1
+# scfa2 <- seriate_mat(mat = scfa2)
+```
+
+## Heatmaps (Control)
+```{r}
+rownames(an) <- an$ID
+# an$Treatment[an$Treatment == "NB9B12"] <- "LB9NB12"
+an$Treatment <- factor(an$Treatment, levels = unique(an$Treatment)[c(1, 3, 2)])
+an <- an[c(grep(pattern = "Control", rownames(an)), 
+           grep(pattern = "NB12", rownames(an)),
+           grep(pattern = "ExtraB12", rownames(an))),]
+
+
+rn <- rownames(scfa1)
+# rn <- rn[c(1,9,2,4,8,7,5,6,3)]
+
+library(circlize)
+col_fun <- colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+# cl <- col_fun(seq(-5, 5))
+
+cols <- RColorBrewer::brewer.pal(n = 6, name = "Dark2")[c(1,2,3)]
+names(cols) <- unique(an$Treatment)
+
+
+
+set.seed(1)
+h1 <- Heatmap(
+  matrix = scfa1[rn, rownames(an)],
+  col = col_fun,
+  cluster_rows = F,
+  row_names_side = "left",
+  cluster_columns = F,
+  show_row_names = T,
+  show_column_names = F,
+  name = "mM",
+  # row_split = rd$Biotype,
+  column_split = an[, 2, drop = FALSE],
+  cluster_column_slices = F,
+  show_parent_dend_line = FALSE,
+  row_title_rot = 0,
+  # row_title = NULL,
+  row_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  column_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  row_title_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  # column_title = NULL,
+  column_dend_height = unit(0.5, "cm"),
+  use_raster = FALSE,
+  top_annotation = HeatmapAnnotation(
+    df = an[, 3, drop = F],
+    col = list(Treatment = cols),
+    simple_anno_size = unit(3, "mm"),
+    show_annotation_name = TRUE,
+    annotation_name_side = "right",
+    # title = expression(Log[2] ~ "CPM"),
+    annotation_name_rot = 0,
+    annotation_name_gp = gpar(fontsize = 0, fontfamily = "Helvetica"),
+    annotation_legend_param = list(
+      title_gp = gpar(fontsize = 10, fontface = "plain", fontfamily = "Helvetica"),
+      labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+    )
+  ),
+  height = unit(x = 4, units = "cm"), width = unit(x = 9, units = "cm"),
+  heatmap_legend_param = list(
+    at = c(-2, -1, 0, 1,2),
+    # title = expression(Log[2] ~ "FC (mM)"),
+    title = "Fold-change",
+    legend_height = unit(1, "cm"),
+    # title_position = "leftcenter-rot",
+    title_gp = gpar(fontsize = 10, fontfamily = "Helvetica"),
+    labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+  )
+)
+
+pdf(file = "scfa1.pdf", width = 11, height = 8.5)
+draw(
+  object = h1,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+png(filename = "scfa1.png", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h1,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+jpeg(filename = "scfa1.jpeg", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h1,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+```
+
+## Heatmaps (N)
+```{r}
+an1 <- an[an$Treatment != "Control", ]
+an1$Treatment <- factor(an1$Treatment, levels = unique(an1$Treatment))
+
+cols <- RColorBrewer::brewer.pal(n = 6, name = "Dark2")[c(2,3)]
+names(cols) <- unique(an1$Treatment)
+
+
+library(circlize)
+col_fun <- colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+
+set.seed(1)
+h2 <- Heatmap(
+  matrix = scfa2[rn, rownames(an1)],
+  col = col_fun,
+  cluster_rows = F,
+  row_names_side = "left",
+  cluster_columns = F,
+  show_row_names = T,
+  show_column_names = F,
+  name = "mM",
+  # row_split = rd$Biotype,
+  column_split = an1[, 2, drop = FALSE],
+  cluster_column_slices = F,
+  show_parent_dend_line = FALSE,
+  row_title_rot = 0,
+  # row_title = NULL,
+  row_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  column_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  row_title_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  # column_title = NULL,
+  column_dend_height = unit(0.5, "cm"),
+  use_raster = FALSE,
+  top_annotation = HeatmapAnnotation(
+    df = an1[, 3, drop = F],
+    col = list(Treatment = cols),
+    simple_anno_size = unit(3, "mm"),
+    show_annotation_name = TRUE,
+    annotation_name_side = "right",
+    # title = expression(Log[2] ~ "CPM"),
+    annotation_name_rot = 0,
+    annotation_name_gp = gpar(fontsize = 0, fontfamily = "Helvetica"),
+    annotation_legend_param = list(
+      title_gp = gpar(fontsize = 10, fontface = "plain", fontfamily = "Helvetica"),
+      labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+    )
+  ),
+  height = unit(x = 4, units = "cm"), width = unit(x = 9, units = "cm"),
+  heatmap_legend_param = list(
+    at = c(-2, 0, 2),
+    # title = expression(Log[2] ~ "FC (mM)"),
+    title = "Fold-change",
+    legend_height = unit(1, "cm"),
+    # title_position = "leftcenter-rot",
+    title_gp = gpar(fontsize = 10, fontfamily = "Helvetica"),
+    labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+  )
+)
+
+
+pdf(file = "scfa2.pdf", width = 11, height = 8.5)
+draw(
+  object = h2,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+png(filename = "scfa2.png", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h2,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+
+jpeg(filename = "scfa2.jpeg", width = 11, height = 8.5, units = "in",res = 300)
+draw(
+  object = h2,
+  heatmap_legend_side = "right",
+  annotation_legend_side = "right",
+  merge_legends = TRUE,
+  align_annotation_legend = ""
+)
+dev.off()
+```
+
+
+
+
+# Differential analysis edgeR
+```{r}
+files <- list.files(path = "../diff_analysis", pattern = "xlsx", full.names = T)[-1]
+names(files) <- gsub(pattern = "\\.xlsx", replacement = "", x = basename(files))
+dea <- lapply(files, function(x){
+  sh <- readxl::excel_sheets(x)
+  ll <- lapply(sh, function(y) data.frame(read_xlsx(x, sheet = y)))
+  names(ll) <- sh
+  return(ll)
+})
+
+dea <- lapply(dea, function(x) ldply(x, data.frame, .id = "Comparison"))
+dea <- ldply(dea, data.frame, .id = "Donor")
+
+# dea <- melt(dea)
+dea$ID <- paste(dea$Kingdom, dea$Phylum, dea$Class, dea$Order, dea$Family, dea$Genus, dea$Species, dea$OTU, sep = "|")
+
+res <- dea
+dea <- res[abs(res$logFC) >= 1 & res$P.Value <= 0.001,]
+dea$Comparison <- as.character(dea$Comparison)
+```
+
+## dot plot all
+```{r}
+dea1 <- dea[
+  grep(
+    pattern = "NB9B12vsControl|ExtraB12vsControl|ExtraB12vsNB9B12",
+    x = dea$Comparison)
+  ,]
+
+dea1$Comparison[dea1$Comparison == "NB9B12vsControl"] <- "NB12vsControl"
+dea1$Comparison[dea1$Comparison == "ExtraB12vsNB9B12"] <- "ExtraB12vsNB12"
+
+dea1$Comparison <- factor(x = dea1$Comparison, levels = unique(dea1$Comparison))
+
+###################################################################
+df <- dea1[,c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species", "OTU")]
+writexl::write_xlsx(x = df, path = "otu_mapping.xlsx", 
+                    col_names = T, format_headers = T)
+
+df1 <- data.frame(readxl::read_xlsx("otu_mapping1.xlsx"), stringsAsFactors = F)
+
+dea1 <- dea1[,(!colnames(dea1) %in% c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species", "OTU", "ID"))]
+
+dea1 <- cbind(df1, dea1)
+dea1$ID <- paste(dea1$Kingdom, dea1$Phylum, dea1$Class, dea1$Order, dea1$Family, dea1$Genus, dea1$Species, dea1$OTU, sep = "|")
+
+df <- dea1[,c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species", "OTU", "ID")]
+
+df$ID2 <- df$ID
+
+for(i in 1:nrow(df)){
+  if(grepl(pattern = "unknown|^UCG", x = df$ID[i])){
+    a <- strsplit(df$ID[i], split = "\\|")[[1]]
+    b <- min(grep(pattern = "unknown|^UCG", x = a))
+    c <- a[(b-1):length(a)]
+    d <- paste(c, collapse = "|")
+    df$ID2[i] <- d
+  } else{
+    df$ID2[i] <- paste(df$Genus[i], df$Species[i], df$OTU[i], sep = "|")
+  }
+}
+
+dea1$ID2 <- df$ID2
+###################################################################
+# 
+dea1$ID3 <- paste(dea1$Phylum, dea1$Class, dea1$Order, dea1$Family, dea1$Genus, dea1$Species, dea1$OTU, sep = "|")
+
+# dea1$ID <- factor(dea1$ID, unique(sort(dea1$ID)))
+
+col <- data.frame(Phylum = unique(dea1$Phylum))
+col$col <- c(RColorBrewer::brewer.pal(n = 8, name = "Dark2")[c(1:3,7)], "black")
+
+dea1 <- merge(dea1, col)
+
+cl <- dea1[,c("ID3", "col")]
+cl <- cl[!duplicated(cl),]
+
+
+b1 <- ggplot(data = dea1, mapping = aes(
+  x = Donor,
+  y = fct_inorder((ID2)),
+  color = logFC,
+  size = -log10(P.Value)
+)) +
+  geom_point(show.legend = T, alpha = 0.6, stroke = 1) +
+  facet_wrap(~Comparison, nrow = 1) +
+  scale_colour_gradient2(low = "#313695", mid = "grey", high = "#A50026", limits = c(floor(min(dea1$logFC)), ceiling(max(dea1$logFC))), breaks = c(-6, 0, 6)) +
+  # scale_size_continuous(breaks = c(4, 9)) +
+  xlab("") +
+  ylab("") +
+  theme_bw(base_family = "Helvetica") +
+  th +
+  guides(
+    size = guide_legend(
+      title.position = "left",
+      title.hjust = 0.5,
+      title.vjust = 0.5,
+      nrow = 1, size = 10,
+      label.hjust = 0.5, label.vjust = 0.5,
+      order = 2
+    ),
+    colour = guide_colorbar(
+      nrow = 1, order = 1,
+      title.position = "left", title.hjust = 0.5, title.vjust = 1,
+      barwidth = unit(2, "cm"), barheight = unit(0.3, "cm"),
+      label.hjust = 0.5, label.vjust = 0.5, size = 10
+    )
+  ) +
+  labs(
+    size = expression(-Log[10] ~ italic(P) ~ " "),
+    color = expression(Log[2] ~ "fold-change")
+  ) +
+  theme(axis.text.y = 
+          element_text(lineheight = 0.8, colour = cl$col),
+        legend.spacing = unit(1, "cm"))
+
+
+b1g <- gridExtra::grid.arrange(egg::set_panel_size(p = b1, width = unit(4, "cm"), height = unit(10, "in")))
+ggsave(plot = b1g, filename = "all.pdf", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b1g, filename = "all.png", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b1g, filename = "all.jpeg", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b1g, filename = "all.svg", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+```
+
+
+## dot plot (Extra only)
+
+```{r}
+dea2 <- dea1[dea1$Comparison == "ExtraB12vsNB12",]
+cl <- dea2[,c("ID3", "col")]
+cl <- cl[!duplicated(cl),]
+
+b2 <- ggplot(data = dea2, mapping = aes(
+  x = Donor,
+  y = fct_inorder((ID2)),
+  color = logFC,
+  size = -log10(P.Value)
+)) +
+  geom_point(show.legend = T, alpha = 0.6, stroke = 1) +
+  facet_wrap(~Comparison, nrow = 1) +
+  scale_colour_gradient2(low = "#313695", mid = "grey", high = "#A50026", limits = c(floor(min(dea1$logFC)), ceiling(max(dea1$logFC))), breaks = c(-6, 0, 6)) +
+  # scale_size_continuous(breaks = c(4, 9)) +
+  xlab("") +
+  ylab("") +
+  theme_bw(base_family = "Helvetica") +
+  th +
+  guides(
+    size = guide_legend(
+      title.position = "left",
+      title.hjust = 0.5,
+      title.vjust = 0.5,
+      nrow = 1, size = 10,
+      label.hjust = 0.5, label.vjust = 0.5,
+      order = 2
+    ),
+    colour = guide_colorbar(
+      nrow = 1, order = 1,
+      title.position = "left", title.hjust = 0.5, title.vjust = 1,
+      barwidth = unit(2, "cm"), barheight = unit(0.3, "cm"),
+      label.hjust = 0.5, label.vjust = 0.5, size = 10
+    )
+  ) +
+  labs(
+    size = expression(-Log[10] ~ italic(P) ~ " "),
+    color = expression(Log[2] ~ "fold-change")
+  ) +
+  theme(axis.text.y = 
+          element_text(lineheight = 0.8, colour = cl$col),
+        legend.spacing = unit(1, "cm"))
+
+
+b2g <- gridExtra::grid.arrange(egg::set_panel_size(p = b2, width = unit(4, "cm"), height = unit(4, "in")))
+ggsave(plot = b2g, filename = "3.pdf", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b2g, filename = "3.png", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b2g, filename = "3.jpeg", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b2g, filename = "3.svg", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+```
+
+## dot plot (1-2)
+
+```{r}
+dea3 <- dea1[dea1$Comparison != "ExtraB12vsNB12",]
+cl <- dea3[,c("ID3", "col")]
+cl <- cl[!duplicated(cl),]
+
+b3 <- ggplot(data = dea3, mapping = aes(
+  x = Donor,
+  y = fct_inorder((ID2)),
+  color = logFC,
+  size = -log10(P.Value)
+)) +
+  geom_point(show.legend = T, alpha = 0.6, stroke = 1) +
+  facet_wrap(~Comparison, nrow = 1) +
+  scale_colour_gradient2(low = "#313695", mid = "grey", high = "#A50026", limits = c(floor(min(dea1$logFC)), ceiling(max(dea1$logFC))), breaks = c(-6, 0, 6)) +
+  # scale_size_continuous(breaks = c(4, 9)) +
+  xlab("") +
+  ylab("") +
+  theme_bw(base_family = "Helvetica") +
+  th +
+  guides(
+    size = guide_legend(
+      title.position = "left",
+      title.hjust = 0.5,
+      title.vjust = 0.5,
+      nrow = 1, size = 10,
+      label.hjust = 0.5, label.vjust = 0.5,
+      order = 2
+    ),
+    colour = guide_colorbar(
+      nrow = 1, order = 1,
+      title.position = "left", title.hjust = 0.5, title.vjust = 1,
+      barwidth = unit(2, "cm"), barheight = unit(0.3, "cm"),
+      label.hjust = 0.5, label.vjust = 0.5, size = 10
+    )
+  ) +
+  labs(
+    size = expression(-Log[10] ~ italic(P) ~ " "),
+    color = expression(Log[2] ~ "fold-change")
+  ) +
+  theme(axis.text.y = 
+          element_text(lineheight = 0.8, colour = cl$col),
+        legend.spacing = unit(1, "cm"))
+
+
+b3g <- gridExtra::grid.arrange(egg::set_panel_size(p = b3, width = unit(4, "cm"), height = unit(8, "in")))
+ggsave(plot = b3g, filename = "12.pdf", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b3g, filename = "12.png", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b3g, filename = "12.jpeg", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+ggsave(plot = b3g, filename = "12.svg", width = unit(13, "in"), height = unit(16.5, "in"), dpi = 320)
+```
+

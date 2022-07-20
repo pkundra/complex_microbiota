@@ -1,0 +1,152 @@
+---
+title: "SCFA heatmap"
+author: "Palni Kundra & Deepak Tanwar"
+date: "<b>Created on:</b> 02.02.2022 <br> <b>Updated on:</b> 08.07.2022"
+output:
+  rmdformats::readthedown:
+    highlight: tango
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    keep_md: no
+    number_sections: no
+    fig_width: 8
+    fig_height: 8
+    fig_caption: true
+    df_print: paged
+    code_folding: show
+  fontsize: 12pt
+  geometry: margin=1in
+  documentclass: article
+# bibliography: references.bib
+link-citations: yes
+---
+
+
+# Libraries
+```{r, warning=FALSE, message=FALSE}
+library(ComplexHeatmap)
+library(circlize)
+library(dplyr)
+library(plyr)
+library(report)
+library(readxl)
+library(RColorBrewer)
+```
+
+# SCFA heatmap
+```{r}
+scfa <- data.frame(
+  read_xlsx(path = "SCFAs_donor_1_to_9_concentration_in_mM.xlsx", sheet = 1),
+  check.names = F
+)
+
+scfa <- scfa[, -c(3:5)]
+
+scfa <- aggregate(scfa[, 3:11], list(Donor = scfa$Donor, Treatment = scfa$Treatment), mean)
+
+scfa$Donor <- gsub(pattern = "Donor ", replacement = "", x = scfa$Donor)
+scfa$Donor <- as.numeric(scfa$Donor) - 1
+scfa$Donor <- paste0("D", scfa$Donor)
+scfa$Treatment <- gsub(pattern = " ", replacement = "", x = scfa$Treatment)
+
+scfa <- scfa[scfa$Treatment != "ExtraB9", ]
+scfa$Treatment[scfa$Treatment == "NB9B12"] <- "NB12"
+
+scfa$ID <- paste(scfa$Donor, scfa$Treatment, sep = "_")
+head(scfa)
+
+an <- scfa[, c(12, 1:2)]
+rownames(an) <- an$ID
+head(an)
+
+rownames(scfa) <- scfa$ID
+scfa <- scfa[, -c(12, 1:2)]
+colnames(scfa) <- gsub(pattern = "\\ \\[mM]", replacement = "", x = colnames(scfa))
+
+# Delta calculation (compared to control)
+scfa1 <- split(x = scfa, f = gsub(pattern = "_.*", replacement = "", x = rownames(scfa)))
+scfa1 <- lapply(scfa1, function(x) {
+  a <- t(x)
+  b <- data.matrix(a - a[, grep(pattern = "Control", x = colnames(a), value = F)])
+  b <- t(b)
+  b <- data.frame(ID = rownames(b), b)
+  return(b)
+})
+scfa1 <- ldply(scfa1, data.frame, .id = NULL)
+rownames(scfa1) <- scfa1$ID
+scfa1 <- scfa1[, -1]
+scfa1 <- t(scfa1)
+```
+
+# Heatmap
+```{r, warning=FALSE}
+an$Treatment <- factor(an$Treatment, levels = unique(an$Treatment))
+
+an <- an[c(
+  grep(pattern = "Control", rownames(an)),
+  grep(pattern = "NB12", rownames(an)),
+  grep(pattern = "ExtraB12", rownames(an))
+), ]
+
+
+rn <- rownames(scfa1)
+
+col_fun <- colorRamp2(c(min(scfa1), 0, max(scfa1)), c("blue", "white", "red"))
+
+cols <- brewer.pal(n = 6, name = "Dark2")[c(1, 2, 3)]
+names(cols) <- unique(an$Treatment)
+names(cols) <- factor(names(cols), names(cols))
+
+Heatmap(
+  matrix = scfa1[rn, rownames(an)],
+  col = col_fun,
+  cluster_rows = F,
+  row_names_side = "left",
+  cluster_columns = F,
+  show_row_names = T,
+  show_column_names = F,
+  column_split = an[, 2, drop = FALSE],
+  cluster_column_slices = F,
+  show_parent_dend_line = FALSE,
+  row_title_rot = 0,
+  row_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  column_names_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  row_title_gp = gpar(fontsize = 8, fontfamily = "Helvetica"),
+  column_dend_height = unit(0.5, "cm"),
+  use_raster = FALSE,
+  top_annotation = HeatmapAnnotation(
+    df = an[, 3, drop = F],
+    col = list(Treatment = cols),
+    simple_anno_size = unit(3, "mm"),
+    show_annotation_name = TRUE,
+    annotation_name_side = "right",
+    annotation_name_rot = 0,
+    annotation_name_gp = gpar(fontsize = 0, fontfamily = "Helvetica"),
+    annotation_legend_param = list(
+      title_gp = gpar(fontsize = 10, fontface = "plain", fontfamily = "Helvetica"),
+      labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+    )
+  ),
+  height = unit(x = 4, units = "cm"), width = unit(x = 9, units = "cm"),
+  heatmap_legend_param = list(
+    at = seq(-30, 20, 10),
+    title = "D concentration (mM)",
+    legend_height = unit(1, "cm"),
+    title_gp = gpar(fontsize = 10, fontfamily = "Helvetica"),
+    labels_gp = gpar(fontsize = 8, fontfamily = "Helvetica")
+  )
+)
+```
+
+# References
+```{r overlap-matrix-9}
+report::cite_packages(session = sessionInfo())
+```
+
+# SessionInfo
+```{r overlap-matrix-10 }
+devtools::session_info() %>%
+  details::details()
+```

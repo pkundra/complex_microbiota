@@ -1,0 +1,275 @@
+---
+title: " Stacked bar plot using proportions; Control, NB9B12, B9, and B12 - `r Sys.Date()`"
+author: "Paola MORALES MARTINEZ"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+
+# Clear plots
+if (!is.null(dev.list())) dev.off()
+# Clean workspace
+rm(list = ls())
+# Clear console
+cat("\014")
+```
+
+
+# Load packages
+
+```{r packages, results = FALSE, warning = FALSE, message = FALSE, include=TRUE}
+require(tidyverse)
+packageVersion("tidyverse")
+require(ggplot2)
+packageVersion("ggplot2")
+require(car)
+packageVersion("car")
+require(clinfun)
+packageVersion("clinfun")
+require(pastecs)
+packageVersion("pastecs")
+require(sf)
+packageVersion("sf")
+require(pgirmess)
+packageVersion("pgirmess")
+require(devtools)
+packageVersion("devtools")
+require(ggsignif)
+packageVersion("ggsignif")
+require(ggpubr)
+packageVersion("ggpubr")
+require(rstatix)
+packageVersion("rstatix")
+require(gridExtra)
+packageVersion("gridExtra")
+require(grid)
+packageVersion("grid")
+require(plyr)
+packageVersion("plyr")
+require(reshape2)
+packageVersion("reshape2")
+```
+
+
+## Data
+
+```{r}
+
+metabolites <- readxl::read_xlsx("SCFA_proportion_NEW.xlsx")
+metabolites$Donor <- as.numeric(gsub(pattern = "Donor ", replacement = "", x = metabolites$Donor)) - 1
+
+metabolites$Donor <- paste0("D", metabolites$Donor)
+
+metabolites$Metabolite[metabolites$Metabolite == "Proponate"] <- "Propionate"
+metabolites$Metabolite <- factor(metabolites$Metabolite,
+  levels = c(
+    "Acetate", "Propionate", "Butyrate",
+    "Formate", "Lactate", "Succinate",
+    "Isobutyrate", "Isovalerate", "Valerate"
+  )
+)
+
+metabolites$Treatment[metabolites$Treatment == "Extra B12"] <- "ExtraB12"
+
+metabolites$Treatment <- factor(metabolites$Treatment, c("Control", "NB12", "ExtraB12"))
+
+# metabolites %>%
+#   filter(Donor %in% c("Donor 2","Donor 3","Donor 4","Donor 5",
+#                       "Donor 6","Donor 7","Donor 8","Donor 9")) -> metabolites
+
+# metabolites
+```
+
+```{r}
+
+# Calculate means
+
+means <- ddply(metabolites, c("Donor", "Treatment", "Metabolite"), summarise,
+  mean = mean(Percentage)
+)
+means
+```
+
+```{r}
+
+# Plot using absolute values
+
+ggplot(data = means, aes(x = Donor, y = mean, fill = Metabolite)) +
+  geom_bar(stat = "identity") +
+  facet_grid(cols = vars(Treatment)) +
+  theme_bw() +
+  scale_fill_manual(values = c(
+    "#009E73", "#56B4E9", "#E69F00",
+    "#999999", "#F0E442", "#7A378B",
+    "#0072B2", "#D55E00", "#CC79A7"
+  )) +
+  labs(
+    x = "",
+    y = "Proportion (%) \n"
+  ) +
+  theme(
+    plot.title = element_text(size = rel(1.00), hjust = 0.5),
+    axis.title = element_text(size = rel(1.00)),
+    axis.text.x = element_text(size = rel(1), hjust = 0.5, angle = 0),
+    axis.text.y = element_text(size = rel(1)),
+    strip.text.x = element_text(size = rel(1), face = "bold"),
+    legend.title = element_text(size = rel(1.00)),
+    legend.text = element_text(size = rel(0.80)),
+    legend.box.background = element_rect(),
+    legend.box.margin = margin(1, 1, 1, 1),
+        legend.key.size = unit(0.4, "cm"),
+    legend.position = "right"
+  ) -> plot
+
+plot
+
+a <- gridExtra::grid.arrange(egg::set_panel_size(p = plot, width = unit(4, "cm"), height = unit(8, "cm")))
+ggsave(plot = a, filename = "fig1.pdf", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = a, filename = "fig1.png", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = a, filename = "fig1.jpeg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = a, filename = "fig1.svg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+
+ggplot(data = means, aes(x = Treatment, y = mean, fill = Metabolite)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~Donor,nrow = 1) +
+  theme_bw() +
+  scale_fill_manual(values = c(
+    "#009E73", "#56B4E9", "#E69F00",
+    "#999999", "#F0E442", "#7A378B",
+    "#0072B2", "#D55E00", "#CC79A7"
+  )) +
+  labs(
+    x = "",
+    y = "Proportion (%) \n"
+  ) +
+  theme(
+    plot.title = element_text(size = rel(2.00), hjust = 0.5),
+    axis.title = element_text(size = rel(1.00)),
+    axis.text.x = element_text(size = rel(1), hjust = 1, angle = 45),
+    axis.text.y = element_text(size = rel(1)),
+    strip.text.x = element_text(size = rel(1.25), face = "bold"),
+    legend.title = element_text(size = rel(1.00)),
+    legend.text = element_text(size = rel(0.80)),
+    legend.key.size = unit(0.4, "cm"),
+    legend.box.background = element_rect(),
+    legend.spacing = unit(0.1, "cm"),
+    legend.box.margin = margin(0, 0, 0, 0),
+    legend.position = "right"
+  ) -> plot1
+plot1
+
+b <- gridExtra::grid.arrange(egg::set_panel_size(p = plot1, width = unit(1.5, "cm"), height = unit(8, "cm")))
+ggsave(plot = b, filename = "fig2.pdf", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = b, filename = "fig2.png", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = b, filename = "fig2.jpeg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = b, filename = "fig2.svg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+
+
+# plot1 + theme(legend.position = "right", legend.key.size = unit(0.4, "cm"), legend.spacing = unit(0.1, "cm"))
+```
+
+```{r}
+
+# Calculate standard error of the mean (SEM)
+
+means.sem <- ddply(metabolites, c("Donor", "Treatment", "Metabolite"),
+  summarise,
+  mean = mean(Percentage),
+  sem = sd(Percentage) / sqrt(length(Percentage))
+)
+
+means.sem <- transform(means.sem, lower = mean - sem, upper = mean + sem)
+```
+
+```{r}
+
+# Add SEM to the plot
+
+means.sem[means.sem$Metabolite == "Acetate", 6:7] <- means.sem[means.sem$Metabolite == "Acetate", 4] +
+  means.sem[means.sem$Metabolite == "Propionate", 6:7] +
+  means.sem[means.sem$Metabolite == "Butyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Formate", 6:7] +
+  means.sem[means.sem$Metabolite == "Lactate", 6:7] +
+  means.sem[means.sem$Metabolite == "Succinate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+means.sem[means.sem$Metabolite == "Propionate", 6:7] <- means.sem[means.sem$Metabolite == "Propionate", 4] +
+  means.sem[means.sem$Metabolite == "Butyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Formate", 6:7] +
+  means.sem[means.sem$Metabolite == "Lactate", 6:7] +
+  means.sem[means.sem$Metabolite == "Succinate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+means.sem[means.sem$Metabolite == "Butyrate", 6:7] <- means.sem[means.sem$Metabolite == "Butyrate", 4] +
+  means.sem[means.sem$Metabolite == "Formate", 6:7] +
+  means.sem[means.sem$Metabolite == "Lactate", 6:7] +
+  means.sem[means.sem$Metabolite == "Succinate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+means.sem[means.sem$Metabolite == "Formate", 6:7] <- means.sem[means.sem$Metabolite == "Formate", 4] +
+  means.sem[means.sem$Metabolite == "Lactate", 6:7] +
+  means.sem[means.sem$Metabolite == "Succinate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+means.sem[means.sem$Metabolite == "Lactate", 6:7] <- means.sem[means.sem$Metabolite == "Lactate", 4] +
+  means.sem[means.sem$Metabolite == "Succinate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+means.sem[means.sem$Metabolite == "Succinate", 6:7] <- means.sem[means.sem$Metabolite == "Succinate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] <- means.sem[means.sem$Metabolite == "Isobutyrate", 6:7] +
+  means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+means.sem[means.sem$Metabolite == "Isovalerate", 6:7] <- means.sem[means.sem$Metabolite == "Isovalerate", 6:7] +
+  means.sem[means.sem$Metabolite == "Valerate", 6:7]
+
+
+plotSEM <- plot +
+  geom_errorbar(
+    data = means.sem,
+    aes(ymax = upper, ymin = lower)
+  )
+
+plotSEM
+
+c <- gridExtra::grid.arrange(egg::set_panel_size(p = plotSEM, width = unit(4, "cm"), height = unit(8, "cm")))
+ggsave(plot = c, filename = "fig1_sem.pdf", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = c, filename = "fig1_sem.png", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = c, filename = "fig1_sem.jpeg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = c, filename = "fig1_sem.svg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+
+plotSEM1 <- plot1 +
+  geom_errorbar(
+    data = means.sem,
+    aes(ymax = upper, ymin = lower)
+  )
+
+plotSEM1
+
+d <- gridExtra::grid.arrange(egg::set_panel_size(p = plotSEM1, width = unit(1.5, "cm"), height = unit(8, "cm")))
+ggsave(plot = d, filename = "fig2_sem.pdf", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = d, filename = "fig2_sem.png", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = d, filename = "fig2_sem.jpeg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+ggsave(plot = d, filename = "fig2_sem.svg", width = unit(8.5, "in"), height = unit(11, "in"), dpi = 320)
+```
+
